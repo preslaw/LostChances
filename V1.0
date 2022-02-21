@@ -1,0 +1,90 @@
+SELECT
+---MAX(DOK.dok_DataWyst) as Date,  --- data wystawienia dokumentu utracone
+
+ADR.adr_Nazwa AS Company,
+TOW.tw_symbol AS Item,
+MAX(TOW.tw_Pole1) AS Name,
+MAX(TOW.tw_Opis) as Opis,
+MAX(POZ.ob_ilosc) AS QTY,
+MAX(EMA.am_Email)
+
+
+FROM 
+dok__dokument DOK
+
+---utracone
+JOIN
+dok_Pozycja POZ ON POZ.ob_DokHanId = DOK.dok_Id AND (DOK.dok_KatId='17' AND DOK.dok_status = 8)
+
+JOIN 
+tw__Towar TOW ON TOW.tw_Id = POZ.ob_TowId
+
+--- tabela dostawy - działa ale podwaja linie na pozycjach które są podwojone w tej samej dostawie
+LEFT JOIN
+(
+   dok__dokument DOK2
+
+   JOIN 
+
+   dok_Pozycja POZ2 ON POZ2.ob_DokHanId = DOK2.dok_Id AND  (DOK2.dok_KatId='15' AND DOK2.dok_status = 6)
+
+   JOIN 
+
+   tw__Towar TOW2 ON TOW2.tw_Id = POZ2.ob_TowId
+
+) ON TOW.tw_symbol = TOW2.tw_symbol
+
+--lastPZ Data
+LEFT JOIN
+( 
+  SELECT
+  TOW.tw_Symbol,
+  MAX(POZ.ob_CenaWaluta) AS 'CUR',
+  MAX(POZ.ob_Ilosc) AS 'QTY',
+  MAX(DOK.dok_TerminRealizacji) as 'DATE'
+
+  FROM 
+  dok__dokument DOK INNER JOIN dok_pozycja POZ ON DOK.dok_Id = POZ.ob_DokHanId
+  INNER JOIN tw__towar TOW ON POZ.ob_TowId = TOW.tw_Id
+
+  WHERE 
+  DOK.dok_katId='10'
+
+  GROUP BY
+  TOW.tw_Symbol
+) AS LastPZ ON TOW.tw_Symbol  = LastPz.tw_Symbol
+
+JOIN 
+adr__Ewid ADR ON ADR.adr_IdObiektu = DOK.dok_PlatnikId
+
+JOIN
+kh__Kontrahent KON ON KON.kh_Id = ADR.adr_IdObiektu
+
+LEFT JOIN 
+pd_Uzytkownik UZY ON UZY.uz_Id = KON.kh_IdOpiekun
+
+JOIN
+adr_Email EMA ON  ADR.adr_Id= EMA.am_IdAdres  
+
+
+WHERE 
+ADR.adr_TypAdresu = 1   --- zeby nie potrajało rekordów przy dołączeniu ADR, potraja  pewnie dlatego ze są 3 typy adresu i do każdego rekordu tworzy 3 rekordy z kazdym rodzajem typu adresu
+AND DOK2.dok_NrPelnyOryg IS NOT NULL
+AND DOK.dok_DataWyst>LastPZ.DATE  --- jeżeli data wpisania utraconego jest większa niż data ostatniej PZ
+--- rozwijane opcje do wyboru
+---  ustawiam na sztywno zakres 4 lata wstecz od daty bieżącej dla utraconych
+AND DOK.dok_DataWyst >= (GETDATE()-1460) 
+AND (POZ2.ob_dokHanId IN({CHL_DB:Select dok_id,dok_NrPelnyOryg  FROM dok__dokument where dok__dokument.dok_KatId=15  AND dok_status =6  ORDER BY dok_TerminRealizacji: dokument})) ---menu rozwijane dostaw
+AND uz_id IN({CHL_DB:Select uz_id,uz_Nazwisko FROM pd_uzytkownik ORDER BY uz_Nazwisko:uzytkownik})
+
+GROUP BY
+ADR.adr_Nazwa,
+TOW.tw_symbol
+
+
+ORDER BY
+ADR.adr_Nazwa, TOW.tw_symbol ASC
+
+--- INFORMACJE
+--- (DOK.dok_KatId='17' AND DOK.dok_status = 8)  - utracone
+--- (DOK.dok_KatId='15' AND DOK.dok_status = 6)) - Shipment
